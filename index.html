@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="tr"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Holdingciler</title>
+<style>
+body{margin:0;background:#0b141a;color:#e9edef;font-family:sans-serif;display:flex;flex-direction:column;height:100dvh}
+header{background:#202c33;padding:14px;font-weight:bold}
+#msgs{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:6px}
+.m{max-width:80%;padding:6px 8px;border-radius:8px;background:#202c33;align-self:flex-start}
+.m.me{background:#005c4b;align-self:flex-end}
+.m small{display:block;color:#8696a0;font-size:11px}
+.m img,.m video{max-width:100%;border-radius:6px;margin-top:4px}
+footer{display:flex;gap:6px;padding:8px;background:#202c33}
+#t{flex:1;padding:10px;border-radius:20px;border:0;background:#2a3942;color:#fff}
+button,label{background:#00a884;border:0;color:#fff;border-radius:50%;width:42px;height:42px;display:flex;align-items:center;justify-content:center;font-size:18px}
+</style></head><body>
+<header>Holdingciler</header>
+<div id="msgs"></div>
+<footer>
+<label>📎<input id="f" type="file" accept="image/*,video/*" hidden></label>
+<input id="t" placeholder="Mesaj yaz">
+<button id="s">➤</button>
+</footer>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0/dist/umd/supabase.js"></script>
+<script>
+const db = supabase.createClient("https://bvhoxwucnanqpactbqhl.supabase.co","sb_publishable_sxomooOMcsrNwiMK8EnsAg_AOtfG79l");
+let me = localStorage.getItem("ad") || prompt("Adın?") || "Anonim";
+localStorage.setItem("ad", me);
+const box = document.getElementById("msgs");
+
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+
+function show(m){
+  const d = document.createElement("div");
+  d.className = "m" + (m.sender===me ? " me":"");
+  let h = "<small>"+esc(m.sender)+"</small>";
+  if(m.media_url) h += m.media_type==="video"
+    ? '<video src="'+m.media_url+'" controls playsinline preload="metadata"></video>'
+    : '<img src="'+m.media_url+'" loading="lazy">';
+  if(m.body) h += esc(m.body);
+  d.innerHTML = h;
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
+}
+
+async function send(extra){
+  extra = extra || {};
+  const body = document.getElementById("t").value.trim();
+  if(!body && !extra.media_url) return;
+  await db.from("messages").insert(Object.assign({sender:me, body:body}, extra));
+  document.getElementById("t").value = "";
+}
+
+document.getElementById("s").onclick = () => send();
+document.getElementById("t").onkeydown = e => { if(e.key==="Enter") send(); };
+
+document.getElementById("f").onchange = async e => {
+  const file = e.target.files[0]; if(!file) return;
+  const name = Date.now()+"_"+file.name.replace(/[^\w.]/g,"_");
+  const r = await db.storage.from("media").upload(name, file);
+  if(r.error) return alert("Yüklenemedi: "+r.error.message);
+  const url = db.storage.from("media").getPublicUrl(name).data.publicUrl;
+  send({media_url:url, media_type:file.type.startsWith("video")?"video":"image"});
+};
+
+(async()=>{
+  const r = await db.from("messages").select().order("created_at").limit(200);
+  (r.data||[]).forEach(show);
+  db.channel("c").on("postgres_changes",{event:"INSERT",schema:"public",table:"messages"},p=>show(p.new)).subscribe();
+})();
+</script></body></html>
