@@ -66,10 +66,9 @@ footer{display:flex;gap:8px;padding:8px;padding-bottom:calc(8px + env(safe-area-
 #auth h1{margin:0 0 20px;font-size:24px}
 .aw{width:100%;max-width:360px;display:flex;flex-direction:column;gap:12px}
 .aw .btn{margin:0;width:100%}
-.ph{display:flex;gap:8px}
-.ph select,.ph input,#ot{background:var(--ip);color:var(--tx);border:0;border-radius:12px;padding:14px 12px;font-size:17px;outline:0}
-.ph input{flex:1;min-width:0}
-#ot{text-align:center;letter-spacing:10px;font-size:24px;width:100%}
+#em,#ot{background:var(--ip);color:var(--tx);border:0;border-radius:12px;padding:14px 14px;font-size:17px;outline:0;width:100%}
+#em::placeholder,#ot::placeholder{color:var(--sb)}
+#ot{text-align:center;letter-spacing:10px;font-size:24px}
 .aerr{color:#f87171;font-size:14px;text-align:center;min-height:18px}
 .lk{color:var(--ac);text-align:center;padding:8px;font-weight:600}
 #cperm{display:none;position:fixed;inset:0;background:#000a;z-index:90;align-items:center;justify-content:center;padding:20px}
@@ -319,22 +318,19 @@ footer{display:flex;gap:8px;padding:8px;padding-bottom:calc(8px + env(safe-area-
   </div>
 </div>
 
-<!-- GİRİŞ -->
+<!-- GİRİŞ (E-POSTA + DOĞRULAMA KODU) -->
 <div id="auth">
   <div class="logo"><svg class="i"><use href="#i-chat"/></svg></div>
   <h1>Sohbet Odası</h1>
   <div class="aw" id="a1">
-    <div class="ph">
-      <select id="cc"><option value="+90">🇹🇷 +90</option><option value="+49">🇩🇪 +49</option><option value="+31">🇳🇱 +31</option><option value="+33">🇫🇷 +33</option><option value="+44">🇬🇧 +44</option><option value="+1">🇺🇸 +1</option><option value="+994">🇦🇿 +994</option><option value="+357">🇨🇾 +357</option><option value="+966">🇸🇦 +966</option><option value="+971">🇦🇪 +971</option></select>
-      <input id="pn" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="5xx xxx xx xx">
-    </div>
+    <input id="em" type="email" inputmode="email" autocomplete="email" placeholder="ornek@gmail.com">
     <button class="btn" id="a-send">Kod gönder</button>
   </div>
   <div class="aw" id="a2" style="display:none">
     <input id="ot" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••">
     <button class="btn" id="a-ver">Doğrula</button>
     <button class="lk" id="a-re"></button>
-    <button class="lk" id="a-back" style="color:var(--sb)">Numarayı değiştir</button>
+    <button class="lk" id="a-back" style="color:var(--sb)">E-postayı değiştir</button>
   </div>
   <div class="aerr" id="a-err"></div>
 </div>
@@ -361,10 +357,10 @@ const LS = {
   del:k=>{try{localStorage.removeItem(k)}catch(e){}}
 };
 const lb = (k,d) => { const v = LS.get(k); return v === null ? d : v === "1"; };
-const INVITE_URL = "https://burakkayaa202-cpu.github.io/Holdingciler/"; // davet linki: uygulamanın açık adresi
-const DEF_CC = "+90"; // başında 0 olan numaralar bu ülke koduyla tamamlanır
+const INVITE_URL = "https://burakkayaa202-cpu.github.io/Holdingciler/";
+const DEF_CC = "+90";
 
-let me = "", uid = null, myE164 = "", myHash = "", ch = null, started = false;
+let me = "", uid = null, myE164 = "", myEmail = "", myHash = "", ch = null, started = false;
 
 const esc = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 const linkify = s => s.replace(/(https?:\/\/[^\s<]+)/g,'<a href="$1" target="_blank" rel="noopener">$1</a>');
@@ -378,7 +374,7 @@ async function sha(s){
   return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");
 }
 
-/* ---------- DUVAR KAĞITLARI (24 hazır, uygulamanın içinde) ---------- */
+/* ---------- DUVAR KAĞITLARI ---------- */
 const WP = [
  ["Gece","linear-gradient(160deg,#0f2027,#203a43,#2c5364)"],
  ["Orman","linear-gradient(160deg,#0b3d2e,#1f7a4d)"],
@@ -700,12 +696,13 @@ function pageProfile(){
   pendAv = null;
   openSub("Profil",
     '<div class="pav"><div class="a" id="pa" data-av="'+esc(me)+'"></div><label>'+ic("camera")+'<input id="pf-f" type="file" accept="image/*" hidden></label></div>'
-    + kv("Telefon", myE164)
+    + (myE164 ? kv("Telefon", myE164) : "")
+    + (myEmail ? kv("E-posta", myEmail) : "")
     + '<div class="fld">'
     + f("pf-n","Görünen ad",me)
     + f("pf-c","Şehir",ex.city)
     + f("pf-d","Doğum günü",ex.birthday,"date")
-    + f("pf-e","E-posta",ex.email,"email")
+    + f("pf-e","İletişim e-postası",ex.email || myEmail,"email")
     + '</div><button class="btn" id="pf-save">Kaydet</button>',
     root => {
       $("pf-f").onchange = async e => {
@@ -1142,7 +1139,7 @@ function setupChannel(){
 }
 
 /* ---------- ARAMA (WebRTC, grup) ---------- */
-const TURN = []; // gerekirse buraya TURN sunucusu eklenir
+const TURN = [];
 const ICE = [{urls:"stun:stun.l.google.com:19302"},{urls:"stun:stun1.l.google.com:19302"}].concat(TURN);
 let call = null;
 const sig = (t,o) => ch.send({type:"broadcast",event:"sig",payload:Object.assign({t:t,from:myId,name:me},o||{})});
@@ -1278,22 +1275,22 @@ $("bf").onclick = async () => {
   }catch(e){ alert("Kamera çevrilemedi: " + e.message); }
 };
 
-/* ---------- GİRİŞ (telefon + SMS kodu) ---------- */
-let pendPhone = "", cdT = null;
+/* ---------- GİRİŞ (E-POSTA + KOD) ---------- */
+let pendEmail = "", cdT = null;
 const authErr = m => { $("a-err").textContent = m || ""; };
 function showAuth(){ $("auth").style.display = "flex"; $("a1").style.display = "flex"; $("a2").style.display = "none"; }
 function hideAuth(){ $("auth").style.display = "none"; }
-function phoneFromInput(){
-  let d = $("pn").value.replace(/[^\d+]/g,"");
-  if(d[0] === "+") return d;
-  d = d.replace(/^0+/,"");
-  return d ? $("cc").value + d : "";
+function emailFromInput(){
+  return $("em").value.trim().toLowerCase();
+}
+function validEmail(e){
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
 }
 function niceErr(msg){
   const m = String(msg||"");
-  if(/provider|unsupported phone|sms/i.test(m)) return "SMS gönderilemedi. Supabase'de telefon girişi ve SMS sağlayıcısı ayarlanmamış olabilir.";
+  if(/smtp|mail|email.*provider|send.*mail/i.test(m)) return "E-posta gönderilemedi. Supabase SMTP ayarlarını ve uygulama şifresini kontrol et.";
   if(/rate|too many|seconds/i.test(m)) return "Çok sık denedin, biraz bekleyip tekrar dene.";
-  if(/expired|invalid/i.test(m)) return "Kod hatalı ya da süresi dolmuş.";
+  if(/expired|invalid|token/i.test(m)) return "Kod hatalı ya da süresi dolmuş.";
   return m;
 }
 function countdown(s){
@@ -1302,30 +1299,30 @@ function countdown(s){
   tick(); cdT = setInterval(tick,1000);
 }
 async function sendCode(){
-  const p = phoneFromInput();
-  if(p.replace(/\D/g,"").length < 9){ authErr("Telefon numarasını kontrol et"); return; }
+  const em = emailFromInput();
+  if(!validEmail(em)){ authErr("Geçerli bir e-posta adresi gir"); return; }
   authErr(""); const b = $("a-send"); b.disabled = true; b.textContent = "Gönderiliyor...";
-  const r = await db.auth.signInWithOtp({phone:p});
+  const r = await db.auth.signInWithOtp({email:em});
   b.disabled = false; b.textContent = "Kod gönder";
   if(r.error){ authErr(niceErr(r.error.message)); return; }
-  pendPhone = p; $("a1").style.display = "none"; $("a2").style.display = "flex";
+  pendEmail = em; $("a1").style.display = "none"; $("a2").style.display = "flex";
   $("ot").value = ""; $("ot").focus(); countdown(30);
 }
 async function verifyCode(){
   const t = $("ot").value.replace(/\D/g,"");
   if(t.length < 6){ authErr("6 haneli kodu gir"); return; }
   authErr(""); const b = $("a-ver"); b.disabled = true; b.textContent = "Doğrulanıyor...";
-  const r = await db.auth.verifyOtp({phone:pendPhone, token:t, type:"sms"});
+  const r = await db.auth.verifyOtp({email:pendEmail, token:t, type:"email"});
   b.disabled = false; b.textContent = "Doğrula";
   if(r.error || !r.data || !r.data.user){ authErr(niceErr(r.error ? r.error.message : "Doğrulanamadı")); return; }
   enter(r.data.user);
 }
 $("a-send").onclick = sendCode;
-$("pn").onkeydown = e => { if(e.key === "Enter") sendCode(); };
+$("em").onkeydown = e => { if(e.key === "Enter") sendCode(); };
 $("a-ver").onclick = verifyCode;
 $("ot").oninput = e => { e.target.value = e.target.value.replace(/\D/g,"").slice(0,6); if(e.target.value.length === 6) verifyCode(); };
 $("a-re").onclick = async () => {
-  authErr(""); const r = await db.auth.signInWithOtp({phone:pendPhone});
+  authErr(""); const r = await db.auth.signInWithOtp({email:pendEmail});
   if(r.error){ authErr(niceErr(r.error.message)); return; } countdown(30);
 };
 $("a-back").onclick = () => { clearInterval(cdT); authErr(""); $("a2").style.display = "none"; $("a1").style.display = "flex"; };
@@ -1333,8 +1330,10 @@ $("a-back").onclick = () => { clearInterval(cdT); authErr(""); $("a2").style.dis
 async function enter(user){
   uid = user.id;
   const p = user.phone || "";
-  myE164 = p[0] === "+" ? p : "+" + p;
-  myHash = await sha(myE164);
+  myEmail = (user.email || pendEmail || "").trim().toLowerCase();
+  myE164 = p ? (p[0] === "+" ? p : "+" + p) : "";
+  const idSeed = myE164 || myEmail || uid;
+  myHash = await sha(idSeed);
   const err = await loadProfiles();
   if(err){ showAuth(); authErr("Veritabanı hazır değil: " + err); return; }
   let mine = Object.values(profiles).find(x=>x.user_id === uid);
@@ -1346,10 +1345,11 @@ async function enter(user){
     }
   }
   if(!mine){
-    let nm = "Kullanıcı " + myE164.slice(-4);
+    const suffix = myE164 ? myE164.slice(-4) : (myEmail.split("@")[0] || "Üye").slice(0,10);
+    let nm = "Kullanıcı " + suffix;
     for(let k=0; k<5 && !mine; k++){
-      const r = await db.from("profiles").insert({name:nm, user_id:uid, phone_hash:myHash, extra:{}}).select(PC).single();
-      if(r.data) mine = r.data; else nm = "Kullanıcı " + myE164.slice(-4) + " " + (10+Math.floor(Math.random()*90));
+      const r = await db.from("profiles").insert({name:nm, user_id:uid, phone_hash:myHash, extra: myEmail ? {email:myEmail} : {}}).select(PC).single();
+      if(r.data) mine = r.data; else nm = "Kullanıcı " + suffix + " " + (10+Math.floor(Math.random()*90));
     }
   }
   if(!mine){ showAuth(); authErr("Profil oluşturulamadı"); return; }
