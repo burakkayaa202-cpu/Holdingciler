@@ -20,6 +20,7 @@ jobs:
           mkdir -p app/src/main/assets app/src/main/res/mipmap-xxxhdpi
           cp index.html manifest.json logo.png icon-192.png icon-512.png apple-touch-icon.png app/src/main/assets/
           cp icon-192.png app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          sed -i "s/__BUILD__/$(date -u +%Y-%m-%dT%H:%M:%SZ)/" app/src/main/assets/index.html
 
       - uses: gradle/actions/setup-gradle@v4
         with:
