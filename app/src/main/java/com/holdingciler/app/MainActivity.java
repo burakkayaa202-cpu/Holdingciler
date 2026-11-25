@@ -4,8 +4,11 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.ContactsContract;
+import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -22,9 +25,11 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.webkit.WebViewAssetLoader;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -37,8 +42,9 @@ public class MainActivity extends AppCompatActivity {
 
     private ActivityResultLauncher<String[]> permLauncher;
     private ActivityResultLauncher<Intent> fileLauncher;
+    private ActivityResultLauncher<String> contactsLauncher;
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -46,16 +52,16 @@ public class MainActivity extends AppCompatActivity {
         webView = new WebView(this);
         setContentView(webView);
 
-        // Android izin penceresi sonucu -> WebView isteğine ver
+        // Kamera / mikrofon izin sonucu
         permLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestMultiplePermissions(),
-                (Map<String, Boolean> result) -> {
+                result -> {
                     if (pendingWebRequest == null) return;
                     pendingWebRequest.grant(pendingWebRequest.getResources());
                     pendingWebRequest = null;
                 });
 
-        // Dosya seçici (resim/video gönderme, profil resmi)
+        // Dosya seçici (resim, video, profil, duvar kağıdı)
         fileLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
                 result -> {
@@ -65,6 +71,12 @@ public class MainActivity extends AppCompatActivity {
                                     result.getResultCode(), result.getData()));
                     filePathCallback = null;
                 });
+
+        // Rehber izni sonucu -> sayfaya haber ver
+        contactsLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                granted -> webView.evaluateJavascript(
+                        "window.__contactsPerm&&window.__contactsPerm(" + granted + ")", null));
 
         final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
                 .setDomain(HOST)
@@ -77,6 +89,10 @@ public class MainActivity extends AppCompatActivity {
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(false);
+        s.setSupportZoom(false);
+        s.setCacheMode(WebSettings.LOAD_DEFAULT);
+
+        webView.addJavascriptInterface(new Bridge(), "NativeApp");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -88,7 +104,9 @@ public class MainActivity extends AppCompatActivity {
             public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
                 Uri u = r.getUrl();
                 if (HOST.equals(u.getHost())) return false;
-                startActivity(new Intent(Intent.ACTION_VIEW, u));
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, u));
+                } catch (Exception ignored) { }
                 return true;
             }
         });
@@ -114,15 +132,18 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // Geri tuşu: önce uygulamanın kendi pencerelerini kapat
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
-                if (webView.canGoBack()) {
-                    webView.goBack();
-                } else {
-                    setEnabled(false);
-                    getOnBackPressedDispatcher().onBackPressed();
-                }
+                webView.evaluateJavascript(
+                        "(window.__back&&window.__back())?true:false",
+                        value -> {
+                            if (!"true".equals(value)) {
+                                setEnabled(false);
+                                getOnBackPressedDispatcher().onBackPressed();
+                            }
+                        });
             }
         });
 
@@ -130,6 +151,62 @@ public class MainActivity extends AppCompatActivity {
             webView.restoreState(savedInstanceState);
         } else {
             webView.loadUrl(START_URL);
+        }
+    }
+
+    /** Sayfanın çağırdığı yerel işlevler: rehber, paylaşma, SMS. */
+    private class Bridge {
+        @JavascriptInterface
+        public boolean hasContactsPermission() {
+            return ContextCompat.checkSelfPermission(MainActivity.this,
+                    Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED;
+        }
+
+        @JavascriptInterface
+        public void requestContacts() {
+            runOnUiThread(() -> contactsLauncher.launch(Manifest.permission.READ_CONTACTS));
+        }
+
+        @JavascriptInterface
+        public String getContacts() {
+            JSONArray arr = new JSONArray();
+            if (!hasContactsPermission()) return arr.toString();
+            String[] proj = {
+                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                    ContactsContract.CommonDataKinds.Phone.NUMBER
+            };
+            try (Cursor c = getContentResolver().query(
+                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI, proj, null, null, null)) {
+                if (c != null) {
+                    while (c.moveToNext()) {
+                        JSONObject o = new JSONObject();
+                        o.put("n", c.getString(0));
+                        o.put("p", c.getString(1));
+                        arr.put(o);
+                    }
+                }
+            } catch (Exception ignored) { }
+            return arr.toString();
+        }
+
+        @JavascriptInterface
+        public void share(String text) {
+            Intent i = new Intent(Intent.ACTION_SEND);
+            i.setType("text/plain");
+            i.putExtra(Intent.EXTRA_TEXT, text);
+            Intent chooser = Intent.createChooser(i, null);
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(chooser);
+        }
+
+        @JavascriptInterface
+        public void sms(String number, String text) {
+            Intent i = new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + Uri.encode(number)));
+            i.putExtra("sms_body", text);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                startActivity(i);
+            } catch (Exception ignored) { }
         }
     }
 
