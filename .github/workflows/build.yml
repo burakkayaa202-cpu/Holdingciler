@@ -7,6 +7,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -29,7 +31,19 @@ jobs:
       - name: APK build
         run: gradle assembleDebug --no-daemon
 
+      - name: APK adını düzenle
+        run: cp app/build/outputs/apk/debug/app-debug.apk Holdingciler.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: Holdingciler.apk
+
+      - name: İndirme sayfasını güncelle (davet linki)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Sohbet Odası (son sürüm)
+          files: Holdingciler.apk
+          make_latest: true
