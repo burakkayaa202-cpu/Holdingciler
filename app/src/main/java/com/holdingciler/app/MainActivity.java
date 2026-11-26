@@ -2,10 +2,14 @@ package com.holdingciler.app;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.ContactsContract;
 import android.webkit.JavascriptInterface;
@@ -22,37 +26,42 @@ import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 import androidx.webkit.WebViewAssetLoader;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final String HOST = "appassets.androidplatform.net";
     private static final String START_URL = "https://" + HOST + "/assets/index.html";
+    private static final String NOTIF_CHANNEL_ID = "holdingciler_messages";
 
     private WebView webView;
     private PermissionRequest pendingWebRequest;
     private ValueCallback<Uri[]> filePathCallback;
+    private final AtomicInteger notifSeq = new AtomicInteger(100);
 
     private ActivityResultLauncher<String[]> permLauncher;
     private ActivityResultLauncher<Intent> fileLauncher;
     private ActivityResultLauncher<String> contactsLauncher;
+    private ActivityResultLauncher<String> notifLauncher;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        createNotificationChannel();
+
         webView = new WebView(this);
         setContentView(webView);
 
-        // Kamera / mikrofon izin sonucu
         permLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestMultiplePermissions(),
                 result -> {
@@ -61,7 +70,6 @@ public class MainActivity extends AppCompatActivity {
                     pendingWebRequest = null;
                 });
 
-        // Dosya seçici (resim, video, profil, duvar kağıdı)
         fileLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
                 result -> {
@@ -72,11 +80,14 @@ public class MainActivity extends AppCompatActivity {
                     filePathCallback = null;
                 });
 
-        // Rehber izni sonucu -> sayfaya haber ver
         contactsLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestPermission(),
                 granted -> webView.evaluateJavascript(
                         "window.__contactsPerm&&window.__contactsPerm(" + granted + ")", null));
+
+        notifLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                granted -> { });
 
         final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
                 .setDomain(HOST)
@@ -132,7 +143,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // Geri tuşu: önce uygulamanın kendi pencerelerini kapat
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
@@ -154,8 +164,65 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** Sayfanın çağırdığı yerel işlevler: rehber, paylaşma, SMS. */
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel ch = new NotificationChannel(
+                    NOTIF_CHANNEL_ID,
+                    "Sohbet Mesajları",
+                    NotificationManager.IMPORTANCE_HIGH
+            );
+            ch.setDescription("Yeni mesaj ve grup bildirimleri");
+            ch.enableVibration(true);
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (nm != null) nm.createNotificationChannel(ch);
+        }
+    }
+
     private class Bridge {
+        @JavascriptInterface
+        public void requestNotificationPerm() {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (ContextCompat.checkSelfPermission(MainActivity.this,
+                        Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    runOnUiThread(() -> notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS));
+                }
+            }
+        }
+
+        @JavascriptInterface
+        public void notify(String title, String body, String chatId) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (ContextCompat.checkSelfPermission(MainActivity.this,
+                        Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    return;
+                }
+            }
+            try {
+                Intent openIntent = new Intent(MainActivity.this, MainActivity.class);
+                openIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                PendingIntent pi = PendingIntent.getActivity(
+                        MainActivity.this,
+                        0,
+                        openIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                );
+                int smallIcon = getApplicationInfo().icon != 0
+                        ? getApplicationInfo().icon
+                        : android.R.drawable.ic_dialog_email;
+
+                NotificationCompat.Builder b = new NotificationCompat.Builder(MainActivity.this, NOTIF_CHANNEL_ID)
+                        .setSmallIcon(smallIcon)
+                        .setContentTitle(title != null && !title.isEmpty() ? title : "Sohbet Odası")
+                        .setContentText(body != null ? body : "Yeni mesaj")
+                        .setPriority(NotificationCompat.PRIORITY_HIGH)
+                        .setAutoCancel(true)
+                        .setContentIntent(pi);
+
+                NotificationManagerCompat.from(MainActivity.this)
+                        .notify(notifSeq.incrementAndGet(), b.build());
+            } catch (Exception ignored) { }
+        }
+
         @JavascriptInterface
         public boolean hasContactsPermission() {
             return ContextCompat.checkSelfPermission(MainActivity.this,
@@ -211,7 +278,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void handleWebPermission(PermissionRequest request) {
-        List<String> needed = new ArrayList<>();
+        java.util.List<String> needed = new java.util.ArrayList<>();
         for (String r : request.getResources()) {
             if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) {
                 addIfMissing(needed, Manifest.permission.CAMERA);
@@ -227,7 +294,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void addIfMissing(List<String> list, String perm) {
+    private void addIfMissing(java.util.List<String> list, String perm) {
         if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
             list.add(perm);
         }
